@@ -1,0 +1,4 @@
+common:  
+  newrelicLicence: ${NRI_LICENCE_KEY}
+  newrelicURL: ${NRI_API_URL}
+  newrelicApiKey: ${NRI_API_KEY}

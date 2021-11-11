@@ -1,0 +1,33 @@
+var apim = require('apim');
+
+function uuidv4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+var uuidcode = uuidv4();
+apim.setvariable('api.org.id', uuidcode);
+apim.setvariable('message.headers.id', uuidcode);
+
+
+#################################################################################
+
+var apim = require('apim');
+
+var apiID = apim.getvariable('api.id');
+
+apim.setvariable('message.headers.parent-id', apiID);
+
+var messageHeader = apim.getvariable('message.headers.parent-id');
+
+apim.error('MiError', 500, 'From message header id', messageHeader);
+
+####################################################################################
+
+var apim = require('apim');
+
+var apiID = apim.getvariable('api.id');
+
+apim.setvariable('message.headers.parent-id', apiID);

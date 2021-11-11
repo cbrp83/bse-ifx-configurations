@@ -1,0 +1,248 @@
+parameters:
+- name: environment
+  displayName: ambiente destino
+  default: dev
+  # do NOT change these values, they are used internally on "if" conditions
+  values: ['auto', 'dev', 'uat', 'prod']
+- name: build
+  type: boolean
+  default: true
+- name: deploy
+  type: boolean
+  default: true
+
+trigger: none
+
+resources:
+  repositories:
+  - repository: devopsutils
+    type: bitbucket
+    endpoint: Bitbucket - devopsbse
+    name: ibkteam/bse-ibkteam-devops-utils
+    ref: feature/bse-ifx
+
+      
+stages:
+- ${{ if eq(parameters.build, true) }}:
+  - stage: Build
+    pool: 
+      vmImage: 'ubuntu-20.04'
+    variables:
+    - group: Artifactory
+    - group: ACR_Variables
+    jobs:
+      - job: build
+        steps:
+        - checkout: devopsutils
+        - checkout: self
+          persistCredentials: true
+
+        - script: |
+            source $(Build.SourcesDirectory)/bse-ibkteam-devops-utils/common/set_vars.sh $(Build.Repository.Name) $(Build.SourcesDirectory)            
+            export subRepoName=nri-logstash-apic
+            echo "##vso[task.setvariable variable=subRepoName]$subRepoName"
+            export subRepoPath=$repopath/$subRepoName
+            echo "##vso[task.setvariable variable=subRepoPath]$subRepoPath"
+            export currentImage=$(ACR_${{parameters.environment}})/ms/$subRepoName
+            echo "##vso[task.setvariable variable=currentImage]$currentImage"
+          displayName: set vars
+
+        - script: |
+            chmod +x $(devopsutilspath)/common/calculate_tag.sh
+            $(devopsutilspath)/common/calculate_tag.sh $(Pipeline.Workspace) $(Build.SourceBranch) $(repopath) $(devopsutilspath)
+          displayName: calculate tags
+
+        - script: |
+            sudo snap install yq
+          displayName: install yq
+
+        - script: |
+            set -e
+
+            function sedeasy {
+              sed -i "s/$(echo $1 | sed -e 's/\([[\/.*]\|\]\)/\\&/g')/$(echo $2 | sed -e 's/[\/&]/\\&/g')/g" $3
+            }
+
+            # workaround. dynamic vars i.e. $(ACR_$(env)) are not supported in azure pipelines as of feb 2021
+            export ACR_dev=$(ACR_dev)
+            export ACR_uat=$(ACR_uat)            
+            export ACR_prod=$(ACR_prod)
+
+            declare -a envs=("dev" "uat" "prod")
+            
+
+            for env in "${envs[@]}"
+            do
+              # clone chart
+              cd $(Pipeline.Workspace)
+              cp -r $(devopsutilspath)/helm-charts/nri-logstash-apic chart-$env
+              cd chart-$env
+
+              # copy values.yml file
+              registry_var=ACR_$env
+              export containerRegistry=${!registry_var}
+              export imagerepository=$containerRegistry/ms/$(subRepoName)
+              export imagetag=$(tag)
+
+              # Note: source is yml, destination is yaml (azure uses yml, helm uses yaml, etc.)
+              cp $(subRepoPath)/values-$env.yaml values.yaml
+              yq e '.image.repository=env(imagerepository)' -i values.yaml
+              yq e '.image.tag=env(imagetag)' -i values.yaml
+
+
+              # package chart including values file
+              cd $(Pipeline.Workspace)
+              mkdir -p $(tag)/$env
+              helm package chart-$env --version $(devopsutilstag) --app-version $(tag) -d $(tag)/$env
+              mv $(tag)/$env/nri-logstash-apic-$(devopsutilstag).tgz $(tag)/$env/microservice.tgz
+              
+              cd $(tag)/$env
+              
+              # clone install.ps1
+              cp $(devopsutilspath)/java_utils/install.ps1 .
+              sedeasy "{{tag}}" "$(tag)" install.ps1
+              sedeasy "{{reponame}}" "$(subRepoName)" install.ps1
+              namespace_var=MS_namespace_$env
+              sedeasy "{{namespace}}" "${!namespace_var}" install.ps1
+              sedeasy "{{chartPath}}" "microservice.tgz" install.ps1
+
+              # clone rollback.ps1
+              cp $(devopsutilspath)/java_utils/rollback.ps1 .
+              sedeasy "{{reponame}}" "$(subRepoName)" rollback.ps1
+              namespace_var=apic
+              sedeasy "{{namespace}}" "${!namespace_var}" rollback.ps1
+
+              # validate chart
+              echo "All environments are validated on all builds, because artifacts can be promoted"
+              echo "Validating chart on $env. Errors on this step are *source* errors, not pipeline errors"
+              helm template $(subRepoName) microservice.tgz --debug
+            done
+            
+            cd $(Pipeline.Workspace)
+            ls -l
+            zip -r $(tag).zip $(tag)
+            # TODO rollback.sh
+          displayName: create helm chart zip
+
+        - task: ArtifactoryGenericUpload@2      
+          inputs:
+            artifactoryService: 'artifactory-ibk'
+            specSource: 'taskConfiguration'
+            fileSpec: |
+              {
+                "files": [
+                  {
+                    "pattern": "$(Pipeline.Workspace)/$(tag).zip",
+                    "target": "bse-ifx-snapshot-local/ms/$(subRepoName)/",
+                    "explode": "false"
+                  }
+                ]
+              }
+          displayName: upload helm chart zip to artifactory
+
+        - task: Docker@2
+          displayName: login ACR
+          inputs:
+            command: login
+            containerRegistry: bsep-acr-${{parameters.environment}}-sv
+
+        - script: |
+            # TODO: pull push acr prod
+            # TODO: use maven cache
+            set -e
+            cd $(subRepoPath)                
+            echo building $(currentImage):$(tag)
+            docker build --build-arg url_artifactory=$(jfrog_url)/bse-ifx-snapshot-local/ \
+              --build-arg user_artifactory=$(jfrog_user) \
+              --build-arg password_artifactory=$(jfrog_apikey) \
+              -t $(currentImage):$(tag) .
+            docker push $(currentImage):$(tag)
+          displayName: 'docker build push'
+          
+        - task: Docker@2
+          displayName: logout ACR
+          inputs:
+            command: logout
+            containerRegistry: bsep-acr-${{parameters.environment}}-sv
+
+        - script: |
+            cd $(subRepoPath)
+            chmod +x $(devopsutilspath)/common/add_build_tag.sh
+            $(devopsutilspath)/common/add_build_tag.sh $(tag)
+          displayName: add and push tag
+
+- ${{ if eq(parameters.deploy, true) }}:
+  - stage: Deploy
+    pool: apjarvis 
+    variables:
+    - group: utils_repository
+    jobs:
+    - job: deploy
+      steps:
+      - checkout: devopsutils
+      - checkout: self
+
+      - task: Kubernetes@1
+        displayName: login ocp
+        inputs:
+          connectionType: Kubernetes Service Connection
+          kubernetesServiceEndpoint: openshiftapic10
+          namespace: apic
+          command: login
+      - script: |
+          oc project apic
+          oc get pods
+          
+      - script: |
+          chmod +x $(Build.SourcesDirectory)/bse-ibkteam-devops-utils/common/set_vars.sh
+          $(Build.SourcesDirectory)/bse-ibkteam-devops-utils/common/set_vars.sh $(Build.Repository.Name) $(Build.SourcesDirectory)
+          export subRepoName=nri-logstash-apic
+          echo "##vso[task.setvariable variable=subRepoName]$subRepoName"
+          echo $subRepoName
+        displayName: set vars
+
+      - script: |
+          chmod +x $(devopsutilspath)/common/calculate_tag.sh
+          $(devopsutilspath)/common/calculate_tag.sh $(Pipeline.Workspace) $(Build.SourceBranch) $(repopath) $(devopsutilspath)
+        displayName: calculate tag
+
+      - task: ArtifactoryGenericDownload@3
+        inputs:
+          connection: 'artifactory-ibk'
+          specSource: 'taskConfiguration'
+          fileSpec: |
+            {
+              "files": [
+                {
+                  "pattern": "bse-ifx-snapshot-local/ms/$(subRepoName)/$(tag).zip",
+                  "target": "$(Pipeline.Workspace)/downloads/"
+                }
+              ]
+            }
+          failNoOp: true
+        displayName: download helm chart zip from artifactory
+
+      - script: |
+          set -e
+          cd $(Pipeline.Workspace)/downloads/ms/$(subRepoName)
+          unzip -o $(tag).zip
+          ls -lR
+        displayName: unzip
+
+      - script: |
+          cd $(Pipeline.Workspace)/downloads/ms/$(subRepoName)/$(tag)/${{parameters.environment}}
+          helm template $(subRepoName) microservice.tgz --debug
+        displayName: debug template        
+
+        # TODO: make namespace dynamic
+      - task: HelmDeploy@0
+        displayName: Helm install
+        inputs:
+          connectionType: Kubernetes Service Connection
+          kubernetesServiceEndpoint: openshiftapic10
+          command: upgrade
+          chartType: FilePath
+          chartPath: $(Pipeline.Workspace)/downloads/ms/$(subRepoName)/$(tag)/${{parameters.environment}}/microservice.tgz
+          namespace: apic
+          releaseName: $(subRepoName)
+          arguments:  --debug --timeout 7m0s

@@ -1,0 +1,16 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: "{{  .Release.Name }}-route"
+spec:
+  host: {{  .Release.Name }}.apps.ocpsbx.grupoib.local
+  to:
+    kind: Service
+    name: "{{  .Release.Name }}-svc"
+    weight: 100
+  port:
+    targetPort: webui   
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: Redirect     
+  wildcardPolicy: None

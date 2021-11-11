@@ -1,0 +1,1 @@
+WHITELIST="datetime","api_name","api_version","rq_headers.trace-id","status_code","time_to_serve_request","uri_path"

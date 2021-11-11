@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>2.4.2</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	
+	<groupId>com.interbank.jarvis.library</groupId>
+	<artifactId>nri-distributed-tracing</artifactId>
+	<version>1.0.0</version>
+	<name>nri-distributed-tracing</name>
+	
+	<description>Library for NewRelic Distributed Tracing</description>
+	<properties>
+		<java.version>11</java.version>
+	</properties>
+
+	<pluginRepositories>
+		<pluginRepository>
+			<id>jfrog-plugins-release</id>
+			<name>plugins-release</name>
+			<url>https://oss.jfrog.org/artifactory/plugins-release</url>
+		</pluginRepository>
+	</pluginRepositories>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aop</artifactId>
+		</dependency>
+		
+		<dependency>
+	      <groupId>com.newrelic.telemetry</groupId>
+	      <artifactId>telemetry</artifactId>
+	      <version>0.9.0</version>
+	    </dependency>
+	    
+	    <dependency>
+	      <groupId>com.newrelic.telemetry</groupId>
+	      <artifactId>telemetry-http-okhttp</artifactId>
+	      <version>0.9.0</version>
+	    </dependency>
+	    
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+                <groupId>org.jfrog.buildinfo</groupId>
+                <artifactId>artifactory-maven-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>build-info</id>
+                        <goals>
+                            <goal>publish</goal>
+                        </goals>
+                        <configuration>
+                            <deployProperties>
+                                <gradle>jarvis-library</gradle>
+                            </deployProperties>
+                            <artifactory>
+                                <includeEnvVars>true</includeEnvVars>
+                                <envVarsExcludePatterns>*password*,*secret*,*key*,*token*,*passphrase*</envVarsExcludePatterns>
+                                <timeoutSec>60</timeoutSec>
+                            </artifactory>
+                            <publisher>
+                                <contextUrl>${url_artifactory}</contextUrl>
+                                <username>${user_artifactory}</username>
+                                <password>${password_artifactory}</password>
+                                <excludePatterns>*-tests.jar</excludePatterns>
+                                <repoKey>${repokey_artifactory}</repoKey>
+                                <snapshotRepoKey>${snapshotrepokey_artifactory}</snapshotRepoKey>
+                            </publisher>
+                            <buildInfo>
+                                <buildName>${build_name}</buildName>
+                                <buildNumber>${build_number}</buildNumber>
+                            </buildInfo>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+		</plugins>
+	</build>
+</project>

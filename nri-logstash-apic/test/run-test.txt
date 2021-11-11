@@ -1,0 +1,17 @@
+# 1. Part docker - Expose a tcp port(5959) that listens for any event and send appropriate data to New Relic
+
+# Build image
+docker build -t nri-logstash-apic .
+
+# Run image as container
+docker run --name nri-logstash-apic-container \
+-e PORT=5959 --env-file your_path/nri-logstash-apic/WHITELIST.txt \
+-e DEBUG=true -e API_KEY=your_api_key -p 9600:9600 -p 5959:5959 nri-logstash-apic
+
+# 2. Part python - Send a test dataset(APIC Event Record) as json to the Logstash container.
+
+# Set virtual environment
+source send-data-logstash/bin/activate
+
+# Execute python app
+python client.py
