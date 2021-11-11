@@ -1,0 +1,36 @@
+replicas: 1
+image:
+  pullPolicy: IfNotPresent
+resources:
+  requests:
+    cpu: 200m
+    memory: 700Mi
+  limits:
+    cpu: 700m
+    memory: 1000Mi    
+globalConfig:
+  QUEUE: audit-ifx-cm
+  QUEUEMANAGER: audit-ifx-cm
+  MQHOST: audit-ifx-cm
+  MQPORT: audit-ifx-cm
+  MQCHANNEL: audit-ifx-cm
+  http_proxy: global-proxy-cm
+  https_proxy: global-proxy-cm 
+globalSecrets:
+  API_KEY: nri-global-ifx-sc
+  MQUSER: audit-ifx-sec
+  MQPASSWORD: audit-ifx-sec
+imagePullSecrets: 
+  - name: ifx-ace-acr
+volumesCm:
+  - name: config
+    configMap:
+      name: audit-redact-config-cm
+      items:
+        - key: config.json
+          path: config.json
+      defaultMode: 420    
+volumeMounts:
+  - name: config
+    mountPath: /config
+    readOnly: true      
